@@ -1,6 +1,7 @@
 package com.cloudwebrtc.webrtc;
 
 import android.graphics.SurfaceTexture;
+import android.os.Build;
 import android.view.Surface;
 
 import org.webrtc.EglBase;
@@ -101,6 +102,21 @@ public class SurfaceTextureRenderer extends EglRenderer {
     if(surface == null) {
       producer.setSize(frame.getRotatedWidth(),frame.getRotatedHeight());
       surface = producer.getSurface();
+      // Declare BT709 colorspace before EGL attaches the surface so the
+      // compositor doesn't reject H.265/HEVC frames that arrive in BT709.
+      // Without this hint the "EglImage dataspace changed, need recreate"
+      // loop fires on API 33+ devices, producing a permanently gray view.
+      // Surface.setDataSpace() is a hidden API; reflection is required.
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        try {
+          java.lang.reflect.Method setDataSpace =
+              Surface.class.getDeclaredMethod("setDataSpace", int.class);
+          setDataSpace.setAccessible(true);
+          setDataSpace.invoke(surface, 281083904 /* DATASPACE_BT709 = 0x10C60000 */);
+        } catch (Exception ignored) {
+          // Hidden API unavailable on this device; EGL will use default dataspace.
+        }
+      }
       createEglSurface(surface);
     }
     updateFrameDimensionsAndReportEvents(frame);

@@ -1,0 +1,67 @@
+name: Sync upstream flutter-webrtc
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9am UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/flutter-webrtc/flutter-webrtc.git
+
+      - name: Fetch upstream tags
+        run: git fetch upstream --tags
+
+      - name: Get latest upstream tag
+        id: latest-tag
+        run: |
+          TAG=$(git ls-remote --tags upstream | grep -o 'refs/tags/v[0-9]*\.[0-9]*\.[0-9]*$' | sort -V | tail -1 | sed 's|refs/tags/||')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Latest upstream tag: $TAG"
+
+      - name: Check if already up to date
+        id: check
+        run: |
+          UPSTREAM_SHA=$(git rev-parse upstream/${{ steps.latest-tag.outputs.tag }} 2>/dev/null || git rev-parse ${{ steps.latest-tag.outputs.tag }})
+          PATCH_BASE=$(git log --format="%H" | tail -2 | tail -1)
+          if [ "$UPSTREAM_SHA" = "$PATCH_BASE" ]; then
+            echo "already_synced=true" >> $GITHUB_OUTPUT
+          else
+            echo "already_synced=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rebase patch onto latest upstream tag
+        if: steps.check.outputs.already_synced == 'false'
+        id: rebase
+        run: |
+          git fetch upstream ${{ steps.latest-tag.outputs.tag }}
+          git rebase ${{ steps.latest-tag.outputs.tag }} || echo "rebase_failed=true" >> $GITHUB_OUTPUT
+
+      - name: Push rebased patch
+        if: steps.check.outputs.already_synced == 'false' && steps.rebase.outputs.rebase_failed != 'true'
+        run: git push origin HEAD:main --force-with-lease
+
+      - name: Open issue on conflict
+        if: steps.rebase.outputs.rebase_failed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Manual rebase needed: setDataSpace patch conflicts with upstream ${{ steps.latest-tag.outputs.tag }}',
+              body: 'The automated sync failed to rebase the setDataSpace patch onto upstream ${{ steps.latest-tag.outputs.tag }}. Please resolve manually:\n\n```\ngit fetch upstream\ngit rebase ${{ steps.latest-tag.outputs.tag }}\n# resolve conflicts\ngit push origin main --force\n```'
+            })
