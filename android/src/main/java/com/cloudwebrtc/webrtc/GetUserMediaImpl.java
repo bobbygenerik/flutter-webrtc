@@ -682,8 +682,14 @@ public class GetUserMediaImpl {
 
         if (constraintsMap.getType(key) == ObjectType.Map) {
             ConstraintsMap innerMap = constraintsMap.getMap(key);
-            if (constraintsMap.getType("ideal") == ObjectType.Number) {
+            if (innerMap.getType("exact") == ObjectType.Number) {
+                return innerMap.getInt("exact");
+            }
+            if (innerMap.getType("ideal") == ObjectType.Number) {
                 return innerMap.getInt("ideal");
+            }
+            if (innerMap.getType("max") == ObjectType.Number) {
+                return innerMap.getInt("max");
             }
         }
 

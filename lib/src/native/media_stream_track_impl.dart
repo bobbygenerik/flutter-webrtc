@@ -9,14 +9,27 @@ import '../helper.dart';
 import 'utils.dart';
 
 class MediaStreamTrackNative extends MediaStreamTrack {
-  MediaStreamTrackNative(this._trackId, this._label, this._kind, this._enabled,
-      this._peerConnectionId,
-      [this.settings_ = const {}]);
+  MediaStreamTrackNative(
+    this._trackId,
+    this._label,
+    this._kind,
+    this._enabled,
+    this._peerConnectionId, [
+    Map<Object?, Object?> settings = const {},
+  ]) : settings_ = Map<Object?, Object?>.from(settings);
 
   factory MediaStreamTrackNative.fromMap(
-      Map<dynamic, dynamic> map, String peerConnectionId) {
-    return MediaStreamTrackNative(map['id'], map['label'], map['kind'],
-        map['enabled'], peerConnectionId, map['settings'] ?? {});
+    Map<dynamic, dynamic> map,
+    String peerConnectionId,
+  ) {
+    return MediaStreamTrackNative(
+      map['id'],
+      map['label'],
+      map['kind'],
+      map['enabled'],
+      peerConnectionId,
+      map['settings'] ?? {},
+    );
   }
   final String _trackId;
   final String _label;
@@ -35,7 +48,7 @@ class MediaStreamTrackNative extends MediaStreamTrack {
     WebRTC.invokeMethod('mediaStreamTrackSetEnable', <String, dynamic>{
       'trackId': _trackId,
       'enabled': enabled,
-      'peerConnectionId': _peerConnectionId
+      'peerConnectionId': _peerConnectionId,
     });
     _enabled = enabled;
 
@@ -62,15 +75,15 @@ class MediaStreamTrackNative extends MediaStreamTrack {
 
   @override
   Future<bool> hasTorch() => WebRTC.invokeMethod(
-        'mediaStreamTrackHasTorch',
-        <String, dynamic>{'trackId': _trackId},
-      ).then((value) => value ?? false);
+    'mediaStreamTrackHasTorch',
+    <String, dynamic>{'trackId': _trackId},
+  ).then((value) => value ?? false);
 
   @override
   Future<void> setTorch(bool torch) => WebRTC.invokeMethod(
-        'mediaStreamTrackSetTorch',
-        <String, dynamic>{'trackId': _trackId, 'torch': torch},
-      );
+    'mediaStreamTrackSetTorch',
+    <String, dynamic>{'trackId': _trackId, 'torch': torch},
+  );
 
   @override
   Future<bool> switchCamera() => Helper.switchCamera(this);
@@ -86,30 +99,57 @@ class MediaStreamTrackNative extends MediaStreamTrack {
   @override
   Future<ByteBuffer> captureFrame() async {
     var filePath = await getTemporaryDirectory();
-    await WebRTC.invokeMethod(
-      'captureFrame',
-      <String, dynamic>{
-        'trackId': _trackId,
-        'peerConnectionId': _peerConnectionId,
-        'path': '${filePath.path}/captureFrame.png'
-      },
-    );
-    return File('${filePath.path}/captureFrame.png')
-        .readAsBytes()
-        .then((value) => value.buffer);
+    await WebRTC.invokeMethod('captureFrame', <String, dynamic>{
+      'trackId': _trackId,
+      'peerConnectionId': _peerConnectionId,
+      'path': '${filePath.path}/captureFrame.png',
+    });
+    return File(
+      '${filePath.path}/captureFrame.png',
+    ).readAsBytes().then((value) => value.buffer);
   }
 
   @override
-  Future<void> applyConstraints([Map<String, dynamic>? constraints]) {
-    if (constraints == null) return Future.value();
+  Future<void> applyConstraints([Map<String, dynamic>? constraints]) async {
+    if (constraints == null) return;
 
     var current = getConstraints();
     if (constraints.containsKey('volume') &&
         current['volume'] != constraints['volume']) {
       Helper.setVolume(constraints['volume'], this);
     }
+    if (kind != 'video' || !WebRTC.platformIsAndroid) return;
 
-    return Future.value();
+    int? constraintInt(String key) {
+      final value = constraints[key];
+      if (value is num) return value.round();
+      if (value is Map) {
+        for (final variant in const ['exact', 'ideal', 'max']) {
+          final nested = value[variant];
+          if (nested is num) return nested.round();
+        }
+      }
+      return null;
+    }
+
+    final width = constraintInt('width');
+    final height = constraintInt('height');
+    final frameRate = constraintInt('frameRate');
+    final applied = await WebRTC.invokeMethod<Map<dynamic, dynamic>, dynamic>(
+      'mediaStreamTrackApplyConstraints',
+      <String, dynamic>{
+        'trackId': _trackId,
+        'width': width,
+        'height': height,
+        'frameRate': frameRate,
+      },
+    );
+    if (applied != null) {
+      for (final key in const ['width', 'height', 'frameRate']) {
+        final value = applied[key];
+        if (value != null) settings_[key] = value;
+      }
+    }
   }
 
   @override
@@ -124,9 +164,8 @@ class MediaStreamTrackNative extends MediaStreamTrack {
 
   @override
   Future<void> stop() async {
-    await WebRTC.invokeMethod(
-      'trackDispose',
-      <String, dynamic>{'trackId': _trackId},
-    );
+    await WebRTC.invokeMethod('trackDispose', <String, dynamic>{
+      'trackId': _trackId,
+    });
   }
 }

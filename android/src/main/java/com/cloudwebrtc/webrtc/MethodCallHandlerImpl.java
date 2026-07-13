@@ -615,6 +615,19 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         result.success(null);
         break;
       }
+      case "mediaStreamTrackApplyConstraints": {
+        String trackId = call.argument("trackId");
+        Number width = call.argument("width");
+        Number height = call.argument("height");
+        Number frameRate = call.argument("frameRate");
+        mediaStreamTrackApplyConstraints(
+            trackId,
+            width == null ? 0 : width.intValue(),
+            height == null ? 0 : height.intValue(),
+            frameRate == null ? 0 : frameRate.intValue(),
+            result);
+        break;
+      }
       case "mediaStreamAddTrack": {
         String streamId = call.argument("streamId");
         String trackId = call.argument("trackId");
@@ -1749,6 +1762,31 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
       return;
     }
     track.setEnabled(enabled);
+  }
+
+  public void mediaStreamTrackApplyConstraints(
+      final String id,
+      final int width,
+      final int height,
+      final int frameRate,
+      final Result result) {
+    LocalTrack localTrack;
+    synchronized (localTracks) {
+      localTrack = localTracks.get(id);
+    }
+    if (!(localTrack instanceof LocalVideoTrack)) {
+      resultError(
+          "mediaStreamTrackApplyConstraints",
+          "local video track not found: " + id,
+          result);
+      return;
+    }
+    ((LocalVideoTrack) localTrack).setOutputFormat(width, height, frameRate);
+    ConstraintsMap applied = new ConstraintsMap();
+    applied.putInt("width", width);
+    applied.putInt("height", height);
+    applied.putInt("frameRate", frameRate);
+    result.success(applied.toMap());
   }
 
   public void mediaStreamTrackSetVolume(final String id, final double volume, String peerConnectionId) {
