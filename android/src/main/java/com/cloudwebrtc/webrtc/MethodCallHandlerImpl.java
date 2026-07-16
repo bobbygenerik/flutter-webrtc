@@ -1137,6 +1137,20 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         });
         break;
       }
+      case "videoEncoderSetBitrateCap": {
+        Number requestedCap = call.argument("bps");
+        if (requestedCap == null) {
+          resultError(call.method, "bps is required", result);
+          break;
+        }
+        if (videoEncoderFactory == null) {
+          resultError(call.method, "video encoder factory is not initialized", result);
+          break;
+        }
+        videoEncoderFactory.setBitrateCapBps(requestedCap.intValue());
+        result.success(videoEncoderFactory.getBitrateCapBps());
+        break;
+      }
       case "setLogSeverity": {
         //now it's possible to setup logSeverity only via PeerConnectionFactory.initialize method
         //Log.d(TAG, "no implementation for 'setLogSeverity'");
