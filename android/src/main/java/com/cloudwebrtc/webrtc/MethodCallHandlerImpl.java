@@ -1138,17 +1138,27 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         break;
       }
       case "videoEncoderSetBitrateCap": {
+        // Dart P2P layer pushes the active video encoder cap so
+        // StreamEncoderWrapper can clamp GCC's setRates()/setRateAllocation()
+        // before HardwareVideoEncoder. Cap=0 clears clamping. The outer
+        // CustomVideoEncoderFactory AtomicInteger is kept in sync for any
+        // non-simulcast Java encoder path, but SimulcastVideoEncoder's
+        // createNative() bypasses that outer wrapper.
         Number requestedCap = call.argument("bps");
         if (requestedCap == null) {
           resultError(call.method, "bps is required", result);
           break;
         }
-        if (videoEncoderFactory == null) {
-          resultError(call.method, "video encoder factory is not initialized", result);
-          break;
+        int bps = requestedCap.intValue();
+        if (bps > 0) {
+          EncoderBitrateCap.INSTANCE.set(bps);
+        } else {
+          EncoderBitrateCap.INSTANCE.clear();
         }
-        videoEncoderFactory.setBitrateCapBps(requestedCap.intValue());
-        result.success(videoEncoderFactory.getBitrateCapBps());
+        if (videoEncoderFactory != null) {
+          videoEncoderFactory.setBitrateCapBps(bps);
+        }
+        result.success(EncoderBitrateCap.INSTANCE.get());
         break;
       }
       case "setLogSeverity": {

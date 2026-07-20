@@ -1,5 +1,6 @@
 package com.cloudwebrtc.webrtc
 
+import android.util.Log
 import org.webrtc.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
@@ -151,7 +152,7 @@ internal class SimulcastVideoEncoderFactoryWrapper(
         ): VideoCodecStatus {
             val future = executor.submit(Callable {
                 return@Callable encoder.setRateAllocation(
-                    allocation,
+                    clampAllocation(allocation),
                     frameRate
                 )
             })
@@ -179,7 +180,18 @@ internal class SimulcastVideoEncoderFactoryWrapper(
         }
 
         override fun setRates(rcParameters: VideoEncoder.RateControlParameters?): VideoCodecStatus {
-            val future = executor.submit(Callable { return@Callable encoder.setRates(rcParameters) })
+            val future = executor.submit(Callable {
+                if (rcParameters == null) {
+                    return@Callable encoder.setRates(null)
+                }
+                val clamped = clampAllocation(rcParameters.bitrate)
+                if (clamped === rcParameters.bitrate) {
+                    return@Callable encoder.setRates(rcParameters)
+                }
+                return@Callable encoder.setRates(
+                    VideoEncoder.RateControlParameters(clamped, rcParameters.framerateFps)
+                )
+            })
             return future.get()
         }
 
@@ -191,6 +203,36 @@ internal class SimulcastVideoEncoderFactoryWrapper(
         override fun getEncoderInfo(): VideoEncoder.EncoderInfo {
             val future = executor.submit(Callable { return@Callable encoder.encoderInfo })
             return future.get()
+        }
+
+        /**
+         * Clamp GCC's allocation before it reaches HardwareVideoEncoder.
+         * This wrapper is created by the primary/fallback factories that
+         * native SimulcastVideoEncoder calls into; the outer
+         * BitrateClampingVideoEncoder around SimulcastVideoEncoder is
+         * bypassed via createNative() and never sees setRates().
+         */
+        private fun clampAllocation(
+            allocation: VideoEncoder.BitrateAllocation?
+        ): VideoEncoder.BitrateAllocation? {
+            if (allocation == null) return null
+            val capBps = EncoderBitrateCap.get()
+            if (capBps <= 0) return allocation
+            val originalBps = allocation.getSum()
+            if (originalBps <= capBps || originalBps <= 0) return allocation
+            val scale = capBps.toDouble() / originalBps
+            val original = allocation.bitratesBbs
+            val clamped = Array(original.size) { s ->
+                IntArray(original[s].size) { t ->
+                    (original[s][t] * scale).toInt()
+                }
+            }
+            Log.d(
+                "StreamEncoderWrapper",
+                "setRates clamped ${originalBps / 1000}kbps → ${capBps / 1000}kbps" +
+                    " [${encoder.implementationName}]"
+            )
+            return VideoEncoder.BitrateAllocation(clamped)
         }
     }
 
